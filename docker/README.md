@@ -186,3 +186,61 @@ curl --request POST \
   configurations, hence the `unstable` profile for those services. It's
   recommended to keep it disabled for now, until the stability issues are
   resolved.
+
+## Troubleshooting
+
+### `yarn install` fails with `Couldn't find package "@helicone-package/pricing@*"`
+
+```
+error Couldn't find package "@helicone-package/pricing@*" required by "bifrost@0.1.0" on the "npm" registry.
+ERROR: process "/bin/sh -c yarn install --frozen-lockfile --network-timeout 300000" did not complete successfully: exit code: 1
+target web: failed to solve
+```
+
+`dockerfiles/dockerfile_web` installs the monorepo with
+`yarn install --frozen-lockfile` *before* copying any source, so every workspace
+referenced by the copied `package.json` files needs its own
+`COPY packages/<name>/package.json ./packages/<name>/` line. Both
+`bifrost/package.json` and `valhalla/jawn/package.json` depend on
+`@helicone-package/pricing`, so omitting `packages/pricing/package.json` makes Yarn
+resolve that dependency from the npm registry instead of the local workspace, and
+the build fails.
+
+When you add a workspace under `packages/`, add the matching
+`COPY packages/<name>/package.json ./packages/<name>/` line to
+`dockerfiles/dockerfile_web`.
+
+### `mailhog` fails to start: `failed to bind host port 0.0.0.0:1025/tcp: address already in use`
+
+```
+failed to set up container networking: driver failed programming external connectivity on endpoint mailhog (...): failed to bind host port 0.0.0.0:1025/tcp: address already in use
+```
+
+`docker-compose.yml` publishes MailHog on the host as `1025:1025` (SMTP) and
+`8025:8025` (Web UI). Anything already listening on port 1025 aborts
+`docker compose up` and leaves the services that come after it in the `Created`
+state. ProtonMail Bridge, for example, binds `127.0.0.1:1025`.
+
+Nothing inside the stack needs the host-side SMTP publish: `web` and `jawn` reach
+MailHog over the Compose network as `mailhog:1025`. Only the Web UI needs a host
+port for your browser, so create `docker-compose.override.yml` (already
+`gitignore`d) and remap it:
+
+```yaml
+services:
+  mailhog:
+    ports: !override
+      - "18025:8025"
+```
+
+`!override` is required because Compose concatenates `ports` lists across files by
+default. Read the verification emails at http://localhost:18025.
+
+### Build time
+
+The `jawn` image is expensive to build: it compiles mbedTLS 3.6.4 from source,
+installs PyTorch 2.7.1 (CPU) and pulls ffmpeg from the Debian `testing` repository.
+Expect the first build to take tens of minutes. Also, `BETTER_AUTH_SECRET` is not
+passed as a build arg to the `web` image, so `next build` logs
+`ERROR [Better Auth]: You are using the default secret` while generating static
+pages; the secret is set correctly at runtime by `docker-compose.yml`.
