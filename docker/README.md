@@ -187,6 +187,37 @@ curl --request POST \
   recommended to keep it disabled for now, until the stability issues are
   resolved.
 
+## Demo mode (local)
+
+The dashboard has a `demo` tier that unlocks every Pro feature, shows the
+"Welcome to Your Demo" banner and puts the dashboard in live mode. You can get a
+populated demo organization without integrating a real LLM app:
+
+```
+cd docker/scripts
+./dev-demo-seed.sh                  # owner = oldest account in the database
+./dev-demo-seed.sh me@example.com   # owner = that account
+```
+
+It creates a `Demo Org` organization (`tier = 'demo'`) owned by that account and
+inserts 600 synthetic requests into ClickHouse spread over 30 days, so the
+metrics, model/cost breakdowns, country and error panels all have data. Running it
+again replaces the previous rows instead of duplicating them.
+
+Two details worth knowing:
+
+- The organization is created with `has_onboarded = true`. While that flag is
+  `false`, the dashboard renders mock data instead of querying ClickHouse
+  (`components/templates/dashboard/dashboardPage.tsx`) and the onboarding flow
+  asks for billing/credits.
+- `onboarding_status.demoDataSetup` is set to `true` deliberately: the built-in
+  `POST /v1/organization/setup-demo` seeder spends real OpenAI credits and needs
+  the proxy worker on `:8787`, so the UI must not call it.
+
+The demo organization sorts last in the organization picker
+(`web/services/hooks/organizations.tsx`), and the "Try Demo" buttons in the empty
+states switch to it.
+
 ## Troubleshooting
 
 ### `yarn install` fails with `Couldn't find package "@helicone-package/pricing@*"`

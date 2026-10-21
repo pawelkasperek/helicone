@@ -1,5 +1,6 @@
 scripts/
 !valhalla/jawn/scripts/
+!docker/scripts/
 dist/
 server.py
 .agent/
