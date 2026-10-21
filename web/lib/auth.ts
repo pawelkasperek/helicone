@@ -31,22 +31,39 @@ const transporter = nodemailer.createTransport({
       : undefined,
 });
 
+// TEMPORARY DEV WORKAROUND: skip email verification for local development.
+//
+// Deliberately NOT keyed off NODE_ENV: this module is compiled by `next build`,
+// which inlines process.env.NODE_ENV as "production" into the server bundle, so
+// a NODE_ENV check here is dead code in the containerized image. The flag has to
+// be set explicitly and defaults to off, leaving production behaviour unchanged.
+const skipEmailVerification =
+  process.env.HELICONE_DEV_SKIP_EMAIL_VERIFICATION === "true";
+
+if (skipEmailVerification) {
+  logger.warn(
+    "HELICONE_DEV_SKIP_EMAIL_VERIFICATION is enabled: email verification is NOT enforced. Never enable this in production.",
+  );
+}
+
 export const auth = betterAuth({
   database: new Pool({
     connectionString: process.env.DATABASE_URL,
   }),
   emailAndPassword: {
     enabled: true,
-    autoSignIn: false,
+    // With verification skipped, sign-up can hand back a session directly.
+    autoSignIn: skipEmailVerification,
     // Unverified addresses must not get a session: otherwise anyone can sign
     // up and act as an email address they don't control.
-    requireEmailVerification: true,
+    requireEmailVerification: !skipEmailVerification,
   },
   emailVerification: {
-    sendOnSignUp: true,
+    // Sending links nobody has to click is just noise when verification is off.
+    sendOnSignUp: !skipEmailVerification,
     // Users blocked by requireEmailVerification get a fresh link when they
     // try to sign in, so existing unverified accounts can recover.
-    sendOnSignIn: true,
+    sendOnSignIn: !skipEmailVerification,
     // Define the function to send the verification email
     sendVerificationEmail: async ({ user, url }, request) => {
       logger.info({ email: user.email }, "Sending verification email");
